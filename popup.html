@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SYU 공지 알리미</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>공지 알리미</h1>
+        <div class="header-controls">
+          <button id="hiddenBtn" class="icon-btn" title="숨긴 공지">
+            <img
+              src="icons/hide.png"
+              alt="숨긴 공지"
+              style="width: 18px; height: 18px; vertical-align: middle"
+            />
+            <span id="hiddenCount" class="count-badge">0</span>
+          </button>
+          <button id="refreshBtn" class="icon-btn" title="새로고침">
+            <img
+              src="icons/refresh.png"
+              alt="새로고침"
+              style="width: 18px; height: 18px; vertical-align: middle"
+            />
+          </button>
+        </div>
+      </header>
+
+      <div class="settings">
+        <div class="setting-item">
+          <label class="switch">
+            <input type="checkbox" id="notificationToggle" />
+            <span class="slider"></span>
+          </label>
+          <span>새 공지 알림</span>
+        </div>
+        <button
+          id="resetBtn"
+          class="reset-btn"
+          title="읽은 공지와 숨긴 공지 초기화"
+        >
+          데이터 초기화
+        </button>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-type="academic">학사공지</button>
+        <button class="tab-btn" data-type="event">행사공지</button>
+        <button class="tab-btn" data-type="scholarship">장학공지</button>
+      </div>
+
+      <div id="hiddenModal" class="modal" style="display: none">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>숨긴 공지</h2>
+            <button id="closeModal" class="close-btn">×</button>
+          </div>
+          <div id="hiddenList" class="hidden-list"></div>
+        </div>
+      </div>
+
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>공지사항을 불러오는 중...</p>
+      </div>
+
+      <div id="error" class="error" style="display: none">
+        <p>공지사항을 불러오는데 실패했습니다.</p>
+        <button id="retryBtn">다시 시도</button>
+      </div>
+
+      <div id="noticeList" class="notice-list"></div>
+
+      <footer>
+        <a
+          href="https://www.syu.ac.kr/academic/academic-notice/"
+          target="_blank"
+        >
+          전체 학사공지 보기 →
+        </a>
+      </footer>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
