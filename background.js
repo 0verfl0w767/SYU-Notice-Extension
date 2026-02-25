@@ -1,8 +1,14 @@
-const CHECK_INTERVAL = 30;
+const CHECK_INTERVAL = 60;
 const NOTICE_URLS = {
   academic: "https://notice.syu.kr/notices/academic",
   event: "https://notice.syu.kr/notices/event",
   scholarship: "https://notice.syu.kr/notices/scholarship",
+};
+const NOTICE_TYPES = Object.keys(NOTICE_URLS);
+const NOTICE_TYPE_LABELS = {
+  academic: "학사공지",
+  event: "행사공지",
+  scholarship: "장학공지",
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -58,27 +64,48 @@ async function checkNewNotices() {
     const settings = await chrome.storage.local.get([
       "notificationsEnabled",
       "latestNotices",
+      "latestNoticesByType",
+      "hiddenNotices",
     ]);
 
     if (settings.notificationsEnabled === false) {
       return;
     }
 
-    const notices = await fetchNotices();
+    const previousNoticesByType = settings.latestNoticesByType || {};
+    const latestNoticesByType = { ...previousNoticesByType };
+    const hiddenNotices = new Set(settings.hiddenNotices || []);
 
-    if (!notices || notices.length === 0) {
-      return;
-    }
+    for (const noticeType of NOTICE_TYPES) {
+      try {
+        const notices = await fetchNotices(noticeType);
+        if (!notices || notices.length === 0) {
+          continue;
+        }
 
-    const previousNotices = settings.latestNotices || [];
-    const newNotices = findNewNotices(notices, previousNotices);
+        const previousNotices =
+          previousNoticesByType[noticeType] ||
+          (noticeType === "academic" ? settings.latestNotices || [] : []);
+        const newNotices = findNewNotices(
+          notices,
+          previousNotices,
+          hiddenNotices,
+        );
 
-    if (newNotices.length > 0) {
-      showNotifications(newNotices);
+        if (newNotices.length > 0) {
+          showNotifications(newNotices, noticeType);
+        }
+
+        latestNoticesByType[noticeType] = notices.slice(0, 10);
+      } catch (err) {
+        console.error(`Error checking ${noticeType} notices:`, err);
+      }
     }
 
     await chrome.storage.local.set({
-      latestNotices: notices.slice(0, 10),
+      latestNoticesByType,
+      latestNotices:
+        latestNoticesByType.academic || settings.latestNotices || [],
       lastChecked: Date.now(),
     });
   } catch (err) {
@@ -164,18 +191,66 @@ async function fetchNotices(noticeType = "academic") {
   return notices;
 }
 
-function findNewNotices(currentNotices, previousNotices) {
+function findNewNotices(currentNotices, previousNotices, hiddenNotices) {
   if (previousNotices.length === 0) {
     return [];
   }
 
-  const previousTitles = new Set(previousNotices.map((n) => n.title));
-  return currentNotices.filter((notice) => !previousTitles.has(notice.title));
+  return currentNotices.filter((notice) => {
+    if (hiddenNotices.has(notice.link) || !isWithinDays(notice.date, 3)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
-function showNotifications(newNotices) {
+function parseNoticeDate(dateText) {
+  if (!dateText || typeof dateText !== "string") {
+    return null;
+  }
+
+  const normalized = dateText.trim().replace(/[^0-9]/g, "-");
+  const parts = normalized
+    .split("-")
+    .filter(Boolean)
+    .map((part) => Number(part));
+
+  if (parts.length < 3 || parts.some((num) => Number.isNaN(num))) {
+    return null;
+  }
+
+  let [year, month, day] = parts;
+  if (year < 100) {
+    year += 2000;
+  }
+
+  const parsed = new Date(year, month - 1, day);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function isWithinDays(dateText, days) {
+  const noticeDate = parseNoticeDate(dateText);
+  if (!noticeDate) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  noticeDate.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.floor((today - noticeDate) / (1000 * 60 * 60 * 24));
+  return diffDays >= 0 && diffDays <= days;
+}
+
+function showNotifications(newNotices, noticeType = "academic") {
   const maxNotifications = 3;
   const noticeToShow = newNotices.slice(0, maxNotifications);
+  const noticeTypeLabel = NOTICE_TYPE_LABELS[noticeType] || "공지";
 
   noticeToShow.forEach((notice, index) => {
     setTimeout(() => {
@@ -183,7 +258,7 @@ function showNotifications(newNotices) {
         {
           type: "basic",
           iconUrl: "icons/icon128.png",
-          title: "새 학사공지",
+          title: `새 ${noticeTypeLabel}`,
           message: notice.title,
           priority: 2,
           requireInteraction: false,
@@ -204,7 +279,7 @@ function showNotifications(newNotices) {
       chrome.notifications.create({
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: "새 학사공지",
+        title: `새 ${noticeTypeLabel}`,
         message: `외 ${newNotices.length - maxNotifications}개의 새 공지가 있습니다.`,
         priority: 1,
       });

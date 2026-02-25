@@ -138,7 +138,7 @@ async function displayNotices(notices) {
   const pinnedNotices = visibleNotices.filter((n) => n.isNotice);
   const regularNotices = visibleNotices.filter((n) => !n.isNotice);
 
-  const twoDaysAgo = Date.now() - 72 * 60 * 60 * 1000;
+  const fewDaysAgo = Date.now() - 72 * 60 * 60 * 1000;
 
   let html = "";
 
@@ -147,8 +147,7 @@ async function displayNotices(notices) {
     html += pinnedNotices
       .map((notice) => {
         const noticeTime = parseNoticeDate(notice.date);
-        const showAsNew =
-          notice.isNew || (noticeTime && noticeTime > twoDaysAgo);
+        const showAsNew = Boolean(noticeTime && noticeTime > fewDaysAgo);
         const isRead = readNotices.has(notice.link);
 
         return `
@@ -181,8 +180,7 @@ async function displayNotices(notices) {
     html += regularNotices
       .map((notice) => {
         const noticeTime = parseNoticeDate(notice.date);
-        const showAsNew =
-          notice.isNew || (noticeTime && noticeTime > twoDaysAgo);
+        const showAsNew = Boolean(noticeTime && noticeTime > fewDaysAgo);
         const isRead = readNotices.has(notice.link);
 
         return `
