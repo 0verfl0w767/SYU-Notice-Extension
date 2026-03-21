@@ -1,4 +1,4 @@
-const CHECK_INTERVAL = 60;
+const DEFAULT_CHECK_INTERVAL = 60;
 const NOTICE_URLS = {
   academic: "https://notice.syu.kr/notices/academic",
   event: "https://notice.syu.kr/notices/event",
@@ -14,16 +14,23 @@ const NOTICE_TYPE_LABELS = {
 chrome.runtime.onInstalled.addListener(() => {
   console.log("SYU Notice Extension installed");
 
-  chrome.storage.local.set({
-    notificationsEnabled: true,
-    lastChecked: 0,
-  });
+  chrome.storage.local.get(
+    ["notificationsEnabled", "lastChecked", "checkIntervalMinutes"],
+    (stored) => {
+      chrome.storage.local.set({
+        notificationsEnabled: stored.notificationsEnabled !== false,
+        lastChecked: stored.lastChecked || 0,
+        checkIntervalMinutes:
+          stored.checkIntervalMinutes || DEFAULT_CHECK_INTERVAL,
+      });
 
-  chrome.alarms.create("checkNotices", {
-    periodInMinutes: CHECK_INTERVAL,
-  });
-
-  checkNewNotices();
+      createNoticeAlarm(
+        stored.checkIntervalMinutes || DEFAULT_CHECK_INTERVAL,
+      ).then(() => {
+        checkNewNotices();
+      });
+    },
+  );
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -35,6 +42,23 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "TOGGLE_NOTIFICATIONS") {
     handleNotificationToggle(message.enabled);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "UPDATE_CHECK_INTERVAL") {
+    (async () => {
+      try {
+        await updateCheckInterval(message.minutes);
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({
+          ok: false,
+          error: err?.message || "Failed to update interval",
+        });
+      }
+    })();
+    return true;
   }
 
   if (message.type === "GET_NOTICES") {
@@ -49,14 +73,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleNotificationToggle(enabled) {
+  const { checkIntervalMinutes } = await chrome.storage.local.get([
+    "checkIntervalMinutes",
+  ]);
+  const interval = checkIntervalMinutes || DEFAULT_CHECK_INTERVAL;
+
   if (enabled) {
-    chrome.alarms.create("checkNotices", {
-      periodInMinutes: CHECK_INTERVAL,
-    });
+    await createNoticeAlarm(interval);
     checkNewNotices();
   } else {
     chrome.alarms.clear("checkNotices");
   }
+}
+
+async function updateCheckInterval(minutes) {
+  const interval = Number(minutes);
+
+  if (!Number.isFinite(interval) || interval < 1) {
+    throw new Error("Invalid interval");
+  }
+
+  await chrome.storage.local.set({ checkIntervalMinutes: interval });
+
+  const { notificationsEnabled } = await chrome.storage.local.get([
+    "notificationsEnabled",
+  ]);
+
+  if (notificationsEnabled !== false) {
+    await createNoticeAlarm(interval);
+  }
+}
+
+async function createNoticeAlarm(minutes) {
+  await chrome.alarms.clear("checkNotices");
+  chrome.alarms.create("checkNotices", {
+    periodInMinutes: minutes,
+  });
 }
 
 async function checkNewNotices() {
@@ -196,12 +248,14 @@ function findNewNotices(currentNotices, previousNotices, hiddenNotices) {
     return [];
   }
 
+  const previousLinks = new Set(previousNotices.map((notice) => notice.link));
+
   return currentNotices.filter((notice) => {
     if (hiddenNotices.has(notice.link) || !isWithinDays(notice.date, 3)) {
       return false;
     }
 
-    return true;
+    return !previousLinks.has(notice.link);
   });
 }
 

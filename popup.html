@@ -30,20 +30,32 @@
       </header>
 
       <div class="settings">
-        <div class="setting-item">
-          <label class="switch">
-            <input type="checkbox" id="notificationToggle" />
-            <span class="slider"></span>
-          </label>
-          <span>새 공지 알림</span>
+        <div class="settings-main">
+          <div class="setting-item notice-setting">
+            <label class="switch">
+              <input type="checkbox" id="notificationToggle" />
+              <span class="slider"></span>
+            </label>
+            <span>새 공지 알림</span>
+            <select id="intervalSelect" class="interval-select">
+              <option value="60">1시간</option>
+              <option value="120">2시간</option>
+              <option value="180">3시간</option>
+              <option value="360">6시간</option>
+              <option value="720">12시간</option>
+            </select>
+          </div>
         </div>
-        <button
+
+        <div
           id="resetBtn"
           class="reset-btn"
-          title="읽은 공지와 숨긴 공지 초기화"
+          role="button"
+          tabindex="0"
+          title="읽은 공지와 숨긴 공지를 모두 초기화합니다"
         >
-          데이터 초기화
-        </button>
+          초기화
+        </div>
       </div>
 
       <div class="tabs">
@@ -68,7 +80,7 @@
       </div>
 
       <div id="error" class="error" style="display: none">
-        <p>공지사항을 불러오는데 실패했습니다.</p>
+        <p>공지사항을 불러오지 못했습니다.</p>
         <button id="retryBtn">다시 시도</button>
       </div>
 
@@ -79,7 +91,7 @@
           href="https://www.syu.ac.kr/academic/academic-notice/"
           target="_blank"
         >
-          전체 학사공지 보기 →
+          전체 학사공지 보러가기 →
         </a>
       </footer>
     </div>

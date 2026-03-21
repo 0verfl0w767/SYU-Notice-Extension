@@ -4,6 +4,7 @@ const error = document.getElementById("error");
 const refreshBtn = document.getElementById("refreshBtn");
 const retryBtn = document.getElementById("retryBtn");
 const notificationToggle = document.getElementById("notificationToggle");
+const intervalSelect = document.getElementById("intervalSelect");
 const hiddenBtn = document.getElementById("hiddenBtn");
 const hiddenCount = document.getElementById("hiddenCount");
 const hiddenModal = document.getElementById("hiddenModal");
@@ -21,9 +22,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   refreshBtn.addEventListener("click", handleRefresh);
   retryBtn.addEventListener("click", handleRefresh);
   notificationToggle.addEventListener("change", handleNotificationToggle);
+  intervalSelect.addEventListener("change", handleIntervalChange);
   hiddenBtn.addEventListener("click", openHiddenModal);
   closeModal.addEventListener("click", closeHiddenModal);
   resetBtn.addEventListener("click", handleReset);
+  resetBtn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleReset();
+    }
+  });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
@@ -40,18 +48,43 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["notificationsEnabled"]);
+  const result = await chrome.storage.local.get([
+    "notificationsEnabled",
+    "checkIntervalMinutes",
+  ]);
   notificationToggle.checked = result.notificationsEnabled !== false;
+  intervalSelect.value = String(result.checkIntervalMinutes || 60);
+  intervalSelect.disabled = result.notificationsEnabled === false;
 }
 
 async function handleNotificationToggle(e) {
   const enabled = e.target.checked;
   await chrome.storage.local.set({ notificationsEnabled: enabled });
+  intervalSelect.disabled = !enabled;
 
-  chrome.runtime.sendMessage({
+  await chrome.runtime.sendMessage({
     type: "TOGGLE_NOTIFICATIONS",
     enabled,
   });
+}
+
+async function handleIntervalChange(e) {
+  const minutes = Number(e.target.value);
+
+  await chrome.storage.local.set({ checkIntervalMinutes: minutes });
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "UPDATE_CHECK_INTERVAL",
+      minutes,
+    });
+
+    if (response && response.ok === false) {
+      console.error("Failed to update interval:", response.error);
+    }
+  } catch (err) {
+    console.error("Failed to update interval:", err?.message || err);
+  }
 }
 
 async function loadNotices() {
