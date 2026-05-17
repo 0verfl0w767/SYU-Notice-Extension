@@ -3,12 +3,22 @@ const NOTICE_URLS = {
   academic: "https://notice.syu.kr/notices/academic",
   event: "https://notice.syu.kr/notices/event",
   scholarship: "https://notice.syu.kr/notices/scholarship",
+  software: "https://notice.syu.kr/notices/software",
 };
 const NOTICE_TYPES = Object.keys(NOTICE_URLS);
 const NOTICE_TYPE_LABELS = {
   academic: "학사공지",
   event: "행사공지",
   scholarship: "장학공지",
+  software: "SW공지",
+};
+const HTML_ENTITY_MAP = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -203,24 +213,26 @@ async function fetchNotices(noticeType = "academic") {
       const titleMatch = row.match(/<span class="tit">([^<]+)<\/span>/i);
       if (!titleMatch) continue;
 
-      let title = titleMatch[1].trim();
+      let title = decodeHtmlEntities(titleMatch[1].trim());
 
       const categoryMatch = row.match(/<span class="md_cate">([^<]+)<\/span>/i);
       if (categoryMatch) {
-        const category = categoryMatch[1].trim();
+        const category = decodeHtmlEntities(categoryMatch[1].trim());
         title = `[${category}] ${title}`;
       }
 
       const linkMatch = row.match(/<a href="([^"]+)" class="itembx"/i);
       if (!linkMatch) continue;
 
-      const link = linkMatch[1].replace(/&amp;/g, "&");
+      const link = decodeHtmlEntities(linkMatch[1].trim());
 
       const dateMatch = row.match(/<td class="step4">([^<]+)<\/td>/i);
-      const date = dateMatch ? dateMatch[1].trim() : "";
+      const date = dateMatch ? decodeHtmlEntities(dateMatch[1].trim()) : "";
 
       const deptMatch = row.match(/<td class="step3">([^<]+)<\/td>/i);
-      const department = deptMatch ? deptMatch[1].trim() : "";
+      const department = deptMatch
+        ? decodeHtmlEntities(deptMatch[1].trim())
+        : "";
 
       const isNew = row.includes("md_new");
 
@@ -241,6 +253,36 @@ async function fetchNotices(noticeType = "academic") {
   }
 
   return notices;
+}
+
+function decodeHtmlEntities(text) {
+  if (typeof text !== "string" || !text.includes("&")) {
+    return text || "";
+  }
+
+  return text
+    .replace(/&#(\d+);/g, (match, dec) => decodeCodePoint(dec, 10, match))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) =>
+      decodeCodePoint(hex, 16, match),
+    )
+    .replace(
+      /&([a-z]+);/gi,
+      (match, name) => HTML_ENTITY_MAP[name.toLowerCase()] || match,
+    );
+}
+
+function decodeCodePoint(value, radix, fallback) {
+  const codePoint = Number.parseInt(value, radix);
+
+  if (!Number.isInteger(codePoint)) {
+    return fallback;
+  }
+
+  try {
+    return String.fromCodePoint(codePoint);
+  } catch {
+    return fallback;
+  }
 }
 
 function findNewNotices(currentNotices, previousNotices, hiddenNotices) {

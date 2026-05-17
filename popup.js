@@ -121,6 +121,9 @@ async function switchTab(noticeType) {
       footerLink.href =
         "https://www.syu.ac.kr/academic/scholarship-information/scholarship-notice/";
       footerLink.textContent = "전체 장학공지 보기 →";
+    } else if (noticeType === "software") {
+      footerLink.href = "https://www.syu.ac.kr/swuniv/community/notice/";
+      footerLink.textContent = "전체 SW공지 보기 →";
     } else if (noticeType === "event") {
       footerLink.href = "https://www.syu.ac.kr/university-square/notice/event/";
       footerLink.textContent = "전체 행사공지 보기 →";
@@ -466,6 +469,16 @@ function hideError() {
 
 function escapeHtml(text) {
   const div = document.createElement("div");
-  div.textContent = text;
+  div.textContent = decodeHtmlEntities(String(text ?? ""));
   return div.innerHTML;
+}
+
+function decodeHtmlEntities(text) {
+  if (typeof text !== "string" || !text.includes("&")) {
+    return text || "";
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = text;
+  return textarea.value;
 }
