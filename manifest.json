@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SYU 공지 알리미",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "삼육대학교 공지를 확인하고 새 공지 알림을 받을 수 있어요.",
   "permissions": ["storage", "notifications", "alarms"],
   "action": {
