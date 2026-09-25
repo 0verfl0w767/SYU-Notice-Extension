@@ -11,8 +11,22 @@ const hiddenModal = document.getElementById("hiddenModal");
 const closeModal = document.getElementById("closeModal");
 const hiddenList = document.getElementById("hiddenList");
 const resetBtn = document.getElementById("resetBtn");
+const noticeView = document.getElementById("noticeView");
+const calendarView = document.getElementById("calendarView");
+const calendarTitle = document.getElementById("calendarTitle");
+const calendarGrid = document.getElementById("calendarGrid");
+const calendarLoading = document.getElementById("calendarLoading");
+const calendarError = document.getElementById("calendarError");
+const calendarRetryBtn = document.getElementById("calendarRetryBtn");
+const calendarDetails = document.getElementById("calendarDetails");
+const prevMonthBtn = document.getElementById("prevMonthBtn");
+const nextMonthBtn = document.getElementById("nextMonthBtn");
 
 let currentNoticeType = "academic";
+let currentView = "notices";
+let calendarDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let calendarEvents = [];
+let calendarRequestId = 0;
 
 document.addEventListener("DOMContentLoaded", async () => {
   await loadSettings();
@@ -33,6 +47,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  document.querySelectorAll(".view-tab").forEach((btn) => {
+    btn.addEventListener("click", () => switchView(btn.dataset.view));
+  });
+
+  prevMonthBtn.addEventListener("click", () => changeCalendarMonth(-1));
+  nextMonthBtn.addEventListener("click", () => changeCalendarMonth(1));
+  calendarTitle.addEventListener("click", goToCurrentMonth);
+  calendarRetryBtn.addEventListener("click", () => loadCalendar(true));
+
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       const type = e.target.getAttribute("data-type");
@@ -46,6 +69,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 });
+
+async function switchView(view) {
+  if (view !== "notices" && view !== "calendar") return;
+
+  currentView = view;
+  const showCalendar = view === "calendar";
+  noticeView.hidden = showCalendar;
+  calendarView.hidden = !showCalendar;
+
+  document.querySelectorAll(".view-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+
+  if (showCalendar) {
+    await loadCalendar();
+  }
+}
 
 async function loadSettings() {
   const result = await chrome.storage.local.get([
@@ -134,6 +174,302 @@ async function switchTab(noticeType) {
   }
 
   await loadNotices();
+}
+
+async function loadCalendar(forceRefresh = false) {
+  const requestId = ++calendarRequestId;
+  const academicYear = getAcademicYear(calendarDate);
+
+  calendarTitle.textContent = `${calendarDate.getFullYear()}년 ${calendarDate.getMonth() + 1}월`;
+  calendarLoading.hidden = false;
+  calendarError.hidden = true;
+  calendarGrid.hidden = true;
+  calendarDetails.hidden = true;
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: "GET_ACADEMIC_SCHEDULE",
+      academicYear,
+      forceRefresh,
+    });
+
+    if (requestId !== calendarRequestId) return;
+    if (!result || !result.ok) {
+      throw new Error(result?.error || "Failed to fetch academic schedule");
+    }
+
+    calendarEvents = (result.events || []).map((event, index) => ({
+      ...event,
+      id: `${event.start}-${event.end}-${index}`,
+      type: classifySchedule(event.title),
+    }));
+    calendarView.classList.toggle("using-stale-cache", result.stale === true);
+    renderCalendar();
+  } catch (err) {
+    if (requestId !== calendarRequestId) return;
+    calendarLoading.hidden = true;
+    calendarError.hidden = false;
+    calendarGrid.hidden = true;
+    console.error("Error loading academic schedule:", err);
+  }
+}
+
+function getAcademicYear(date) {
+  return date.getMonth() < 2 ? date.getFullYear() - 1 : date.getFullYear();
+}
+
+function changeCalendarMonth(offset) {
+  calendarDate = new Date(
+    calendarDate.getFullYear(),
+    calendarDate.getMonth() + offset,
+    1,
+  );
+  loadCalendar();
+}
+
+function goToCurrentMonth() {
+  const today = new Date();
+  calendarDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  loadCalendar();
+}
+
+function renderCalendar() {
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const gridStart = addDays(monthStart, -monthStart.getDay());
+  const gridEnd = addDays(monthEnd, 6 - monthEnd.getDay());
+  const weeks = [];
+
+  for (let start = gridStart; start <= gridEnd; start = addDays(start, 7)) {
+    weeks.push(new Date(start));
+  }
+
+  calendarTitle.textContent = `${year}년 ${month + 1}월`;
+  calendarGrid.innerHTML = weeks
+    .map((weekStart) => renderCalendarWeek(weekStart, month))
+    .join("");
+
+  calendarLoading.hidden = true;
+  calendarError.hidden = true;
+  calendarGrid.hidden = false;
+  bindCalendarInteractions();
+}
+
+function renderCalendarWeek(weekStart, currentMonth) {
+  const weekEnd = addDays(weekStart, 6);
+  const segments = buildWeekSegments(weekStart, weekEnd);
+  const laneCount = segments.reduce(
+    (max, segment) => Math.max(max, segment.lane + 1),
+    0,
+  );
+  const compactEvents = laneCount >= 4;
+  const eventHeight = compactEvents ? 10 : 14;
+  const eventStep = compactEvents ? 11 : 15;
+  const days = [];
+
+  for (let index = 0; index < 7; index += 1) {
+    const date = addDays(weekStart, index);
+    const dateKey = toIsoDate(date);
+    const classes = ["calendar-day"];
+    if (date.getMonth() !== currentMonth) classes.push("outside-month");
+    if (isToday(date)) classes.push("today");
+    if (index === 0) classes.push("sunday");
+    if (index === 6) classes.push("saturday");
+
+    days.push(`
+      <button class="${classes.join(" ")}" data-date="${dateKey}" aria-label="${formatAccessibleDate(date)}">
+        <span class="day-number">${date.getDate()}</span>
+      </button>
+    `);
+  }
+
+  const eventBars = segments
+    .map((segment) => {
+      const continuationClasses = ["calendar-event", segment.event.type];
+      if (segment.continuesLeft) continuationClasses.push("continues-left");
+      if (segment.continuesRight) continuationClasses.push("continues-right");
+
+      return `
+        <button
+          class="${continuationClasses.join(" ")}"
+          data-event-id="${escapeHtml(segment.event.id)}"
+          style="left:calc(${(segment.startIndex / 7) * 100}% + 2px);width:calc(${(segment.span / 7) * 100}% - 4px);top:${24 + segment.lane * eventStep}px;height:${eventHeight}px;line-height:${eventHeight - 2}px;font-size:${compactEvents ? 7 : 8}px"
+          title="${escapeHtml(segment.event.title)}"
+        >${escapeHtml(segment.event.title)}</button>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="calendar-week">
+      ${days.join("")}
+      ${eventBars}
+    </div>
+  `;
+}
+
+function buildWeekSegments(weekStart, weekEnd) {
+  const candidates = calendarEvents
+    .map((event) => ({
+      event,
+      start: parseIsoDate(event.start),
+      end: parseIsoDate(event.end),
+    }))
+    .filter(({ start, end }) => start <= weekEnd && end >= weekStart)
+    .map(({ event, start, end }) => {
+      const clippedStart = start < weekStart ? weekStart : start;
+      const clippedEnd = end > weekEnd ? weekEnd : end;
+      const startIndex = daysBetween(weekStart, clippedStart);
+      const endIndex = daysBetween(weekStart, clippedEnd);
+
+      return {
+        event,
+        startIndex,
+        endIndex,
+        span: endIndex - startIndex + 1,
+        continuesLeft: start < weekStart,
+        continuesRight: end > weekEnd,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.startIndex - b.startIndex ||
+        b.span - a.span ||
+        a.event.title.localeCompare(b.event.title, "ko"),
+    );
+
+  const laneEnds = [];
+  return candidates.map((segment) => {
+    let lane = laneEnds.findIndex((endIndex) => endIndex < segment.startIndex);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = segment.endIndex;
+    return { ...segment, lane };
+  });
+}
+
+function bindCalendarInteractions() {
+  calendarGrid.querySelectorAll(".calendar-event").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const selected = calendarEvents.find(
+        (item) => item.id === button.dataset.eventId,
+      );
+      if (selected) showCalendarDetails([selected]);
+    });
+  });
+
+  calendarGrid.querySelectorAll(".calendar-day").forEach((button) => {
+    button.addEventListener("click", () => {
+      const date = button.dataset.date;
+      const events = calendarEvents.filter(
+        (event) => event.start <= date && event.end >= date,
+      );
+      showCalendarDetails(events, date);
+    });
+  });
+}
+
+function showCalendarDetails(events, date = "") {
+  if (events.length === 0) {
+    calendarDetails.hidden = true;
+    return;
+  }
+
+  const heading = date ? formatKoreanDate(parseIsoDate(date)) : "일정 상세";
+  calendarDetails.innerHTML = `
+    <div class="calendar-details-header">
+      <strong>${escapeHtml(heading)}</strong>
+      <button class="calendar-details-close" aria-label="상세 닫기">×</button>
+    </div>
+    ${events
+      .map(
+        (event) => `
+          <div class="calendar-detail-item">
+            <i class="legend-dot ${event.type}"></i>
+            <div>
+              <strong>${escapeHtml(event.title)}</strong>
+              <span>${escapeHtml(formatEventDateRange(event))}</span>
+            </div>
+          </div>
+        `,
+      )
+      .join("")}
+  `;
+  calendarDetails.hidden = false;
+  calendarDetails
+    .querySelector(".calendar-details-close")
+    .addEventListener("click", () => {
+      calendarDetails.hidden = true;
+    });
+  calendarDetails.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function classifySchedule(title) {
+  if (
+    /(삼일절|광복절|추석|설날|한글날|개천절|성탄절|신정|어린이날|현충일|대체휴일|부처님|근로자의 날|지방선거|개교기념일)/.test(
+      title,
+    )
+  ) {
+    return "holiday";
+  }
+  if (/(고사|시험|성적|졸업사정|학위수여)/.test(title)) return "exam";
+  if (/(수강|등록|휴[·ㆍ]?복학|교직과정|신청|접수)/.test(title)) {
+    return "registration";
+  }
+  if (/(축제|세미나|CAMP|체육대회|협의회|입학식)/i.test(title)) {
+    return "event";
+  }
+  return "academic";
+}
+
+function formatEventDateRange(event) {
+  const start = formatKoreanDate(parseIsoDate(event.start));
+  if (event.start === event.end) return start;
+  return `${start} ~ ${formatKoreanDate(parseIsoDate(event.end))}`;
+}
+
+function formatKoreanDate(date) {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
+function formatAccessibleDate(date) {
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  return `${formatKoreanDate(date)} ${weekdays[date.getDay()]}요일`;
+}
+
+function parseIsoDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function toIsoDate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function addDays(date, amount) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
+}
+
+function daysBetween(start, end) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const utcStart = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const utcEnd = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.round((utcEnd - utcStart) / dayMs);
+}
+
+function isToday(date) {
+  const today = new Date();
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
 }
 
 async function fetchNotices() {
@@ -289,7 +625,11 @@ async function handleRefresh() {
     refreshBtn.style.transform = "";
   }, 300);
 
-  await loadNotices();
+  if (currentView === "calendar") {
+    await loadCalendar(true);
+  } else {
+    await loadNotices();
+  }
 }
 
 async function handleReset() {

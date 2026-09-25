@@ -1,4 +1,6 @@
 const DEFAULT_CHECK_INTERVAL = 60;
+const SCHEDULE_CACHE_TTL = 12 * 60 * 60 * 1000;
+const ACADEMIC_SCHEDULE_URL = "https://notice.syu.kr/major-schedule";
 const NOTICE_URLS = {
   academic: "https://notice.syu.kr/notices/academic",
   event: "https://notice.syu.kr/notices/event",
@@ -75,6 +77,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const noticeType = message.noticeType || "academic";
     fetchNotices(noticeType)
       .then((notices) => sendResponse({ ok: true, notices }))
+      .catch((err) =>
+        sendResponse({ ok: false, error: err?.message || "Fetch failed" }),
+      );
+    return true;
+  }
+
+  if (message.type === "GET_ACADEMIC_SCHEDULE") {
+    getAcademicSchedule(message.academicYear, message.forceRefresh === true)
+      .then((result) => sendResponse({ ok: true, ...result }))
       .catch((err) =>
         sendResponse({ ok: false, error: err?.message || "Fetch failed" }),
       );
@@ -253,6 +264,147 @@ async function fetchNotices(noticeType = "academic") {
   }
 
   return notices;
+}
+
+async function getAcademicSchedule(academicYear, forceRefresh = false) {
+  const year = Number(academicYear);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error("Invalid academic year");
+  }
+
+  const storage = await chrome.storage.local.get(["academicSchedulesByYear"]);
+  const schedulesByYear = storage.academicSchedulesByYear || {};
+  const cached = schedulesByYear[String(year)];
+  const cacheIsFresh =
+    cached && Date.now() - cached.fetchedAt < SCHEDULE_CACHE_TTL;
+
+  if (!forceRefresh && cacheIsFresh) {
+    return { events: cached.events, academicYear: year, cached: true };
+  }
+
+  try {
+    const response = await fetch(`${ACADEMIC_SCHEDULE_URL}?c=${year}`);
+    if (!response.ok) {
+      throw new Error(`Schedule request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.ok || !data.html) {
+      throw new Error(data.error || "Invalid schedule response");
+    }
+
+    const html = data.html;
+    const events = parseAcademicSchedule(html);
+    if (events.length === 0) {
+      throw new Error("No academic schedule found");
+    }
+
+    schedulesByYear[String(year)] = {
+      events,
+      fetchedAt: Date.now(),
+    };
+    await chrome.storage.local.set({ academicSchedulesByYear: schedulesByYear });
+
+    return { events, academicYear: year, cached: false };
+  } catch (err) {
+    if (cached?.events?.length) {
+      return {
+        events: cached.events,
+        academicYear: year,
+        cached: true,
+        stale: true,
+      };
+    }
+    throw err;
+  }
+}
+
+function parseAcademicSchedule(html) {
+  const events = [];
+  const seen = new Set();
+  const monthBlockRegex =
+    /<div class="md_textcalendar">[\s\S]*?<div class="year">\s*(\d{4})\s*<\/div>[\s\S]*?<div class="month">\s*(\d{1,2})\s*<\/div>[\s\S]*?<div class="md_cal_date_lsbx">[\s\S]*?<ul>([\s\S]*?)<\/ul>/gi;
+
+  let monthMatch;
+  while ((monthMatch = monthBlockRegex.exec(html)) !== null) {
+    const blockYear = Number(monthMatch[1]);
+    const blockMonth = Number(monthMatch[2]);
+    const listHtml = monthMatch[3];
+    const itemRegex =
+      /<li>\s*<dl>\s*<dt>([\s\S]*?)<\/dt>\s*<dd>([\s\S]*?)<\/dd>\s*<\/dl>\s*<\/li>/gi;
+
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(listHtml)) !== null) {
+      const dateText = stripHtml(itemMatch[1]);
+      const title = stripHtml(itemMatch[2]);
+      const range = parseScheduleDateRange(dateText, blockYear, blockMonth);
+      if (!title || !range) continue;
+
+      const key = `${range.start}|${range.end}|${title}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      events.push({
+        title,
+        start: range.start,
+        end: range.end,
+      });
+    }
+  }
+
+  return events.sort(
+    (a, b) =>
+      a.start.localeCompare(b.start) ||
+      a.end.localeCompare(b.end) ||
+      a.title.localeCompare(b.title, "ko"),
+  );
+}
+
+function parseScheduleDateRange(dateText, blockYear, blockMonth) {
+  const dates = [
+    ...dateText.matchAll(/(\d{1,2})\s*[.]\s*(\d{1,2})/g),
+  ];
+  if (dates.length === 0) return null;
+
+  const startMonth = Number(dates[0][1]);
+  const startDay = Number(dates[0][2]);
+  const endMonth = dates[1] ? Number(dates[1][1]) : startMonth;
+  const endDay = dates[1] ? Number(dates[1][2]) : startDay;
+  const startYear = blockYear;
+  const endYear = endMonth < startMonth ? blockYear + 1 : blockYear;
+
+  if (startMonth !== blockMonth || !isValidDate(startYear, startMonth, startDay)) {
+    return null;
+  }
+  if (!isValidDate(endYear, endMonth, endDay)) return null;
+
+  return {
+    start: formatIsoDate(startYear, startMonth, startDay),
+    end: formatIsoDate(endYear, endMonth, endDay),
+  };
+}
+
+function isValidDate(year, month, day) {
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+function formatIsoDate(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function stripHtml(value) {
+  return decodeHtmlEntities(
+    value
+      .replace(/<br\s*\/?\s*>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 function decodeHtmlEntities(text) {

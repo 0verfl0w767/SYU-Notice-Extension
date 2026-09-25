@@ -8,62 +8,126 @@
   </head>
   <body>
     <div class="container">
-      <header>
-        <h1>공지 알리미</h1>
-        <div class="header-controls">
-          <button id="hiddenBtn" class="icon-btn" title="숨긴 공지">
-            <img
-              src="icons/hide.png"
-              alt="숨긴 공지"
-              style="width: 18px; height: 18px; vertical-align: middle"
-            />
-            <span id="hiddenCount" class="count-badge">0</span>
-          </button>
-          <button id="refreshBtn" class="icon-btn" title="새로고침">
-            <img
-              src="icons/refresh.png"
-              alt="새로고침"
-              style="width: 18px; height: 18px; vertical-align: middle"
-            />
-          </button>
-        </div>
-      </header>
+      <nav class="view-tabs" aria-label="화면 선택">
+        <button class="view-tab active" data-view="notices">공지</button>
+        <button class="view-tab" data-view="calendar">학사일정</button>
+      </nav>
 
-      <div class="settings">
-        <div class="settings-main">
-          <div class="setting-item notice-setting">
-            <label class="switch">
-              <input type="checkbox" id="notificationToggle" />
-              <span class="slider"></span>
-            </label>
-            <span>새 공지 알림</span>
-            <select id="intervalSelect" class="interval-select">
-              <option value="60">1시간</option>
-              <option value="120">2시간</option>
-              <option value="180">3시간</option>
-              <option value="360">6시간</option>
-              <option value="720">12시간</option>
-            </select>
+      <section id="noticeView" class="view-panel notice-view">
+        <div class="settings">
+          <div class="settings-main">
+            <div class="setting-item notice-setting">
+              <label class="switch">
+                <input type="checkbox" id="notificationToggle" />
+                <span class="slider"></span>
+              </label>
+              <span>새 공지 알림</span>
+              <select id="intervalSelect" class="interval-select">
+                <option value="60">1시간</option>
+                <option value="120">2시간</option>
+                <option value="180">3시간</option>
+                <option value="360">6시간</option>
+                <option value="720">12시간</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <div
+              id="resetBtn"
+              class="reset-btn"
+              role="button"
+              tabindex="0"
+              title="읽은 공지와 숨긴 공지를 모두 초기화합니다"
+            >
+              초기화
+            </div>
+            <button id="hiddenBtn" class="icon-btn" title="숨긴 공지">
+              <img
+                src="icons/hide.png"
+                alt="숨긴 공지"
+                style="width: 16px; height: 16px; vertical-align: middle"
+              />
+              <span id="hiddenCount" class="count-badge">0</span>
+            </button>
+            <button id="refreshBtn" class="icon-btn" title="새로고침">
+              <img
+                src="icons/refresh.png"
+                alt="새로고침"
+                style="width: 16px; height: 16px; vertical-align: middle"
+              />
+            </button>
           </div>
         </div>
 
-        <div
-          id="resetBtn"
-          class="reset-btn"
-          role="button"
-          tabindex="0"
-          title="읽은 공지와 숨긴 공지를 모두 초기화합니다"
-        >
-          초기화
+        <div class="tabs">
+          <button class="tab-btn active" data-type="academic">학사공지</button>
+          <button class="tab-btn" data-type="event">행사공지</button>
+          <button class="tab-btn" data-type="scholarship">장학공지</button>
+          <button class="tab-btn" data-type="software">SW공지</button>
         </div>
-      </div>
 
-      <div class="tabs">
-        <button class="tab-btn active" data-type="academic">학사공지</button>
-        <button class="tab-btn" data-type="event">행사공지</button>
-        <button class="tab-btn" data-type="scholarship">장학공지</button>
-        <button class="tab-btn" data-type="software">SW공지</button>
-      </div>
+        <div id="loading" class="loading">
+          <div class="spinner"></div>
+          <p>공지사항을 불러오는 중...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none">
+          <p>공지사항을 불러오지 못했습니다.</p>
+          <button id="retryBtn">다시 시도</button>
+        </div>
+
+        <div id="noticeList" class="notice-list"></div>
+
+        <footer>
+          <a
+            href="https://www.syu.ac.kr/academic/academic-notice/"
+            target="_blank"
+          >
+            전체 학사공지 보러가기 →
+          </a>
+        </footer>
+      </section>
+
+      <section id="calendarView" class="view-panel calendar-view" hidden>
+        <div class="calendar-toolbar">
+          <button id="prevMonthBtn" class="month-nav" aria-label="이전 달">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 18 9 12l6-6"></path>
+            </svg>
+          </button>
+          <button id="calendarTitle" class="calendar-title" title="이번 달로 이동"></button>
+          <button id="nextMonthBtn" class="month-nav" aria-label="다음 달">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9 18 6-6-6-6"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="calendar-weekdays" aria-hidden="true">
+          <span>일</span><span>월</span><span>화</span><span>수</span>
+          <span>목</span><span>금</span><span>토</span>
+        </div>
+
+        <div id="calendarLoading" class="calendar-status">
+          <div class="spinner"></div>
+          <p>학사일정을 불러오는 중...</p>
+        </div>
+
+        <div id="calendarError" class="calendar-status calendar-error" hidden>
+          <p>학사일정을 불러오지 못했습니다.</p>
+          <button id="calendarRetryBtn">다시 시도</button>
+        </div>
+
+        <div id="calendarGrid" class="calendar-grid" aria-label="월간 학사일정"></div>
+        <div id="calendarDetails" class="calendar-details" hidden></div>
+
+        <div class="calendar-footer">
+          <a href="https://www.syu.ac.kr/academic/major-schedule/" target="_blank">
+            전체 학사일정 보기 →
+          </a>
+        </div>
+      </section>
 
       <div id="hiddenModal" class="modal" style="display: none">
         <div class="modal-content">
@@ -74,27 +138,6 @@
           <div id="hiddenList" class="hidden-list"></div>
         </div>
       </div>
-
-      <div id="loading" class="loading">
-        <div class="spinner"></div>
-        <p>공지사항을 불러오는 중...</p>
-      </div>
-
-      <div id="error" class="error" style="display: none">
-        <p>공지사항을 불러오지 못했습니다.</p>
-        <button id="retryBtn">다시 시도</button>
-      </div>
-
-      <div id="noticeList" class="notice-list"></div>
-
-      <footer>
-        <a
-          href="https://www.syu.ac.kr/academic/academic-notice/"
-          target="_blank"
-        >
-          전체 학사공지 보러가기 →
-        </a>
-      </footer>
     </div>
 
     <script src="popup.js"></script>
