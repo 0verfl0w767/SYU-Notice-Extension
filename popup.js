@@ -21,6 +21,27 @@ const calendarRetryBtn = document.getElementById("calendarRetryBtn");
 const calendarDetails = document.getElementById("calendarDetails");
 const prevMonthBtn = document.getElementById("prevMonthBtn");
 const nextMonthBtn = document.getElementById("nextMonthBtn");
+const noticeSourceLink = document.getElementById("noticeSourceLink");
+
+const NOTICE_SOURCE_PAGES = {
+  academic: {
+    href: "https://www.syu.ac.kr/academic/academic-notice/",
+    label: "전체 학사공지 보기",
+  },
+  event: {
+    href: "https://www.syu.ac.kr/university-square/notice/event/",
+    label: "전체 행사공지 보기",
+  },
+  scholarship: {
+    href:
+      "https://www.syu.ac.kr/academic/scholarship-information/scholarship-notice/",
+    label: "전체 장학공지 보기",
+  },
+  software: {
+    href: "https://www.syu.ac.kr/swuniv/community/notice/",
+    label: "전체 SW공지 보기",
+  },
+};
 
 let currentNoticeType = "academic";
 let currentView = "notices";
@@ -155,23 +176,7 @@ async function switchTab(noticeType) {
     }
   });
 
-  const footerLink = document.querySelector("footer a");
-  if (footerLink) {
-    if (noticeType === "scholarship") {
-      footerLink.href =
-        "https://www.syu.ac.kr/academic/scholarship-information/scholarship-notice/";
-      footerLink.textContent = "전체 장학공지 보기 →";
-    } else if (noticeType === "software") {
-      footerLink.href = "https://www.syu.ac.kr/swuniv/community/notice/";
-      footerLink.textContent = "전체 SW공지 보기 →";
-    } else if (noticeType === "event") {
-      footerLink.href = "https://www.syu.ac.kr/university-square/notice/event/";
-      footerLink.textContent = "전체 행사공지 보기 →";
-    } else {
-      footerLink.href = "https://www.syu.ac.kr/academic/academic-notice/";
-      footerLink.textContent = "전체 학사공지 보기 →";
-    }
-  }
+  updateNoticeSourceLink();
 
   await loadNotices();
 }
@@ -248,7 +253,7 @@ function renderCalendar() {
 
   calendarTitle.textContent = `${year}년 ${month + 1}월`;
   calendarGrid.innerHTML = weeks
-    .map((weekStart) => renderCalendarWeek(weekStart, month))
+    .map((weekStart) => renderCalendarWeek(weekStart, month, weeks.length))
     .join("");
 
   calendarLoading.hidden = true;
@@ -257,16 +262,21 @@ function renderCalendar() {
   bindCalendarInteractions();
 }
 
-function renderCalendarWeek(weekStart, currentMonth) {
+function renderCalendarWeek(weekStart, currentMonth, weekCount) {
   const weekEnd = addDays(weekStart, 6);
   const segments = buildWeekSegments(weekStart, weekEnd);
   const laneCount = segments.reduce(
     (max, segment) => Math.max(max, segment.lane + 1),
     0,
   );
-  const compactEvents = laneCount >= 4;
-  const eventHeight = compactEvents ? 10 : 14;
-  const eventStep = compactEvents ? 11 : 15;
+  const sixWeekMonth = weekCount >= 6;
+  const maxVisibleLanes = sixWeekMonth ? 3 : 4;
+  const hasOverflow = laneCount > maxVisibleLanes;
+  const visibleLaneCount = hasOverflow ? maxVisibleLanes - 1 : laneCount;
+  const eventTop = sixWeekMonth ? 26 : 27;
+  const eventHeight = 15;
+  const eventStep = 16;
+  const eventFontSize = 10;
   const days = [];
 
   for (let index = 0; index < 7; index += 1) {
@@ -286,6 +296,7 @@ function renderCalendarWeek(weekStart, currentMonth) {
   }
 
   const eventBars = segments
+    .filter((segment) => segment.lane < visibleLaneCount)
     .map((segment) => {
       const continuationClasses = ["calendar-event", segment.event.type];
       if (segment.continuesLeft) continuationClasses.push("continues-left");
@@ -295,17 +306,36 @@ function renderCalendarWeek(weekStart, currentMonth) {
         <button
           class="${continuationClasses.join(" ")}"
           data-event-id="${escapeHtml(segment.event.id)}"
-          style="left:calc(${(segment.startIndex / 7) * 100}% + 2px);width:calc(${(segment.span / 7) * 100}% - 4px);top:${24 + segment.lane * eventStep}px;height:${eventHeight}px;line-height:${eventHeight - 2}px;font-size:${compactEvents ? 7 : 8}px"
+          style="left:calc(${(segment.startIndex / 7) * 100}% + 2px);width:calc(${(segment.span / 7) * 100}% - 4px);top:${eventTop + segment.lane * eventStep}px;height:${eventHeight}px;font-size:${eventFontSize}px"
           title="${escapeHtml(segment.event.title)}"
-        >${escapeHtml(segment.event.title)}</button>
+        ><span class="calendar-event-label">${escapeHtml(segment.event.title)}</span></button>
       `;
     })
     .join("");
+
+  const hiddenEvents = [
+    ...new Map(
+      segments
+        .filter((segment) => segment.lane >= visibleLaneCount)
+        .map((segment) => [segment.event.id, segment.event]),
+    ).values(),
+  ];
+  const overflowButton = hasOverflow
+    ? `
+        <button
+          class="calendar-overflow"
+          data-event-ids="${encodeURIComponent(JSON.stringify(hiddenEvents.map((event) => event.id)))}"
+          style="top:${eventTop + (maxVisibleLanes - 1) * eventStep}px;height:${eventHeight}px;font-size:${eventFontSize}px"
+          title="숨겨진 일정 ${hiddenEvents.length}개 보기"
+        >+${hiddenEvents.length}개</button>
+      `
+    : "";
 
   return `
     <div class="calendar-week">
       ${days.join("")}
       ${eventBars}
+      ${overflowButton}
     </div>
   `;
 }
@@ -360,6 +390,24 @@ function bindCalendarInteractions() {
     });
   });
 
+  calendarGrid.querySelectorAll(".calendar-overflow").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+
+      try {
+        const eventIds = JSON.parse(
+          decodeURIComponent(button.dataset.eventIds || "%5B%5D"),
+        );
+        const hiddenEvents = eventIds
+          .map((id) => calendarEvents.find((item) => item.id === id))
+          .filter(Boolean);
+        showCalendarDetails(hiddenEvents, "", "숨겨진 일정");
+      } catch (err) {
+        console.error("Error opening hidden calendar events:", err);
+      }
+    });
+  });
+
   calendarGrid.querySelectorAll(".calendar-day").forEach((button) => {
     button.addEventListener("click", () => {
       const date = button.dataset.date;
@@ -371,13 +419,14 @@ function bindCalendarInteractions() {
   });
 }
 
-function showCalendarDetails(events, date = "") {
+function showCalendarDetails(events, date = "", headingOverride = "") {
   if (events.length === 0) {
     calendarDetails.hidden = true;
     return;
   }
 
-  const heading = date ? formatKoreanDate(parseIsoDate(date)) : "일정 상세";
+  const heading =
+    headingOverride || (date ? formatKoreanDate(parseIsoDate(date)) : "일정 상세");
   calendarDetails.innerHTML = `
     <div class="calendar-details-header">
       <strong>${escapeHtml(heading)}</strong>
@@ -617,6 +666,14 @@ async function displayNotices(notices) {
       await updateHiddenCount();
     });
   });
+}
+
+function updateNoticeSourceLink() {
+  const source = NOTICE_SOURCE_PAGES[currentNoticeType];
+  if (!source || !noticeSourceLink) return;
+
+  noticeSourceLink.href = source.href;
+  noticeSourceLink.textContent = `${source.label} →`;
 }
 
 async function handleRefresh() {
